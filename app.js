@@ -6,79 +6,61 @@ class TodoApp {
             list: document.getElementById("todoList"),
             count: document.getElementById("todoCount"),
             todos: [],
-            db: null,
             editId: null,
-            dbReady: false
         });
-        this.initDB();
-    }
-
-    async initDB() {
-        const SQL = await initSqlJs({
-            locateFile: file => `https://sql.js.org/dist/${file}`
-        });
-        const data = localStorage.getItem("todoDb");
-        if (data) {
-            this.db = new SQL.Database(new Uint8Array(data.split(",").map(Number)));
-        } else {
-            this.db = new SQL.Database();
-            this.db.run(`CREATE TABLE todos (
-                id INTEGER PRIMARY KEY,
-                text TEXT NOT NULL,
-                completed INTEGER DEFAULT 0
-            )`);
-        }
-        this.loadTodos();
-        this.dbReady = true;
         this.init();
+        this.loadTodos();
     }
 
-    loadTodos() {  //View
-        const result = this.db.exec("SELECT * FROM todos");
-        this.todos = result.length ? result[0].values.map(row => ({
-            id: row[0],
-            text: row[1],
-            completed: Boolean(row[2])
-        })) : [];
-    }
-
-    saveDB() {
-        const data = this.db.export();
-        const arr = Array.from(data);
-        localStorage.setItem("todoDb", arr.toString());
+    async loadTodos() {
+        try {
+            this.todos = await api.getTodos();
+            this.render();
+        } catch (error) {
+            console.error("Failed to load todos:", error);
+            alert("Failed to load todos. Make sure the server is running.");
+        }
     }
 
     init() {
         this.btn.onclick = () => this.add();
         this.input.addEventListener("keypress", e => e.key === "Enter" && !e.shiftKey && (e.preventDefault(), this.add()));
-        this.render();
     }
 
-    add() {
+    async add() {
         const text = this.input.value.trim();
         if (!text) return alert("Please enter a task.");
-        const id = Date.now();
-        this.db.run("INSERT INTO todos (id, text, completed) VALUES (?, ?, 0)", [id, text]);
-        this.saveDB();
-        this.loadTodos();
-        this.render();
-        this.input.value = "";
+        
+        try {
+            const newTodo = await api.addTodo(text);
+            this.todos.unshift(newTodo);
+            this.render();
+            this.input.value = "";
+        } catch (error) {
+            alert("Failed to add todo");
+        }
     }
 
-    del(id) {
-        this.db.run("DELETE FROM todos WHERE id = ?", [id]);
-        this.saveDB();
-        this.loadTodos();
-        this.render();
+    async del(id) {
+        try {
+            await api.deleteTodo(id);
+            this.todos = this.todos.filter(t => t.id !== id);
+            this.render();
+        } catch (error) {
+            alert("Failed to delete todo");
+        }
     }
 
-    toggle(id) {
+    async toggle(id) {
         const todo = this.todos.find(t => t.id === id);
         if (todo) {
-            this.db.run("UPDATE todos SET completed = ? WHERE id = ?", [!todo.completed ? 1 : 0, id]);
-            this.saveDB();
-            this.loadTodos();
-            this.render();
+            try {
+                await api.toggleTodo(id, !todo.completed);
+                todo.completed = !todo.completed;
+                this.render();
+            } catch (error) {
+                alert("Failed to update todo");
+            }
         }
     }
 
@@ -88,17 +70,21 @@ class TodoApp {
         setTimeout(() => document.getElementById(`edit-${id}`)?.focus(), 0);
     }
 
-    saveEdit(id) {
+    async saveEdit(id) {
         const ta = document.getElementById(`edit-${id}`);
         const text = ta?.value.trim();
         if (!text) return alert("Task text cannot be empty.");
+        
         const todo = this.todos.find(t => t.id === id);
         if (todo) {
-            this.db.run("UPDATE todos SET text = ? WHERE id = ?", [text, id]);
-            this.saveDB();
-            this.loadTodos();
-            this.editId = null;
-            this.render();
+            try {
+                await api.editTodo(id, text);
+                todo.text = text;
+                this.editId = null;
+                this.render();
+            } catch (error) {
+                alert("Failed to update todo");
+            }
         }
     }
 
